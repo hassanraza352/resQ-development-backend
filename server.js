@@ -8,6 +8,8 @@ const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
 const authRoutes=require("./routes/authRoutes")
 const adminRoutes = require("./routes/adminRoutes");
+const unitRoutes = require("./routes/unitRoutes");
+const hospitalRoutes = require("./routes/hospitalRoutes");
 
 const connectDB = require("./config/db");
 
@@ -36,6 +38,8 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/units", unitRoutes);
+app.use("/api/hospitals", hospitalRoutes);
 
 
 
