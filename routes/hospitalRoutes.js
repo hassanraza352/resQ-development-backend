@@ -4,6 +4,8 @@ const express = require("express");
 const {
   registerHospital,
   getMyHospital,
+  updateHospitalAvailability,
+  getHospitalEmergencyRequests,
 } = require("../controller/hospitalController");
 
 const {
@@ -25,6 +27,19 @@ router.get(
   protect,
   authorize("hospital"),
   getMyHospital
+);
+router.patch(
+  "/availability",
+  protect,
+  authorize("hospital"),
+  updateHospitalAvailability
+);
+
+router.get(
+  "/emergencies/incoming",
+  protect,
+  authorize("hospital"),
+  getHospitalEmergencyRequests
 );
 
 module.exports = router;

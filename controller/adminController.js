@@ -1,6 +1,7 @@
 const User = require("../model/User");
 const Unit = require("../model/Unit");
 const Hospital = require("../model/Hospital");
+const EmergencyRequest = require("../model/EmergencyRequest");
 
 // Assign unit role to an existing user
 const assignUnitRole = async (req, res) => {
@@ -298,6 +299,324 @@ const reviewHospital = async (req, res) => {
   }
 };
 
+
+
+
+const getPendingEmergencies = async (req, res) => {
+  try {
+    const requests = await EmergencyRequest.find({
+      status: "pending",
+    })
+      .populate("requester", "name email phone")
+      .sort({ createdAt: 1 });
+
+    return res.status(200).json({
+      success: true,
+      count: requests.length,
+      requests,
+    });
+  } catch (error) {
+    console.error("Get pending emergencies error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve pending emergencies",
+    });
+  }
+};
+
+const assignUnitToEmergency = async (req, res) => {
+  let reservedUnitId = null;
+
+  try {
+    const { unitId } = req.body;
+    const { requestId } = req.params;
+
+    if (!unitId) {
+      return res.status(400).json({
+        success: false,
+        message: "Unit ID is required",
+      });
+    }
+
+    const emergencyRequest = await EmergencyRequest.findOne({
+      _id: requestId,
+      status: "pending",
+    });
+
+    if (!emergencyRequest) {
+      return res.status(404).json({
+        success: false,
+        message: "Pending emergency request not found",
+      });
+    }
+
+    // Atomically reserve only a verified, available unit.
+    const unit = await Unit.findOneAndUpdate(
+      {
+        _id: unitId,
+        verificationStatus: "verified",
+        availability: "available",
+      },
+      {
+        $set: { availability: "busy" },
+      },
+      { new: true }
+    );
+
+    if (!unit) {
+      return res.status(409).json({
+        success: false,
+        message: "Unit not found, not verified, or not available",
+      });
+    }
+
+    reservedUnitId = unit._id;
+
+    // Only one admin assignment can win for a pending request.
+    const updatedRequest = await EmergencyRequest.findOneAndUpdate(
+      {
+        _id: requestId,
+        status: "pending",
+      },
+      {
+        $set: {
+          assignedUnit: unit._id,
+          status: "assigned",
+        },
+      },
+      { new: true, runValidators: true }
+    ).populate("assignedUnit");
+
+    if (!updatedRequest) {
+      // Another assignment may have won; release our reservation.
+      await Unit.updateOne(
+        { _id: reservedUnitId, availability: "busy" },
+        { $set: { availability: "available" } }
+      );
+
+      reservedUnitId = null;
+
+      return res.status(409).json({
+        success: false,
+        message: "This emergency request has already been assigned",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Unit assigned successfully",
+      request: updatedRequest,
+    });
+  } catch (error) {
+    if (reservedUnitId) {
+      await Unit.updateOne(
+        { _id: reservedUnitId, availability: "busy" },
+        { $set: { availability: "available" } }
+      ).catch(() => {});
+    }
+
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request ID or unit ID",
+      });
+    }
+
+    console.error("Assign unit error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to assign unit",
+    });
+  }
+};
+
+
+const assignHospitalToEmergency = async (req, res) => {
+  try {
+    const { hospitalId } = req.body;
+    const { requestId } = req.params;
+
+    if (!hospitalId) {
+      return res.status(400).json({
+        success: false,
+        message: "Hospital ID is required",
+      });
+    }
+
+    const hospital = await Hospital.findById(hospitalId);
+
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: "Hospital not found",
+      });
+    }
+
+    if (hospital.verificationStatus !== "verified") {
+      return res.status(400).json({
+        success: false,
+        message: "Only verified hospitals can be assigned",
+      });
+    }
+
+    if (hospital.emergencyAvailability !== "accepting") {
+      return res.status(400).json({
+        success: false,
+        message: "Hospital is not accepting emergencies",
+      });
+    }
+
+    const emergency = await EmergencyRequest.findOneAndUpdate(
+      {
+        _id: requestId,
+        status: {
+          $in: ["pending", "assigned", "accepted", "en-route", "arrived"],
+        },
+      },
+      {
+        $set: {
+          assignedHospital: hospital._id,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    )
+      .populate("requester", "name email phone")
+      .populate("assignedHospital");
+
+    if (!emergency) {
+      return res.status(404).json({
+        success: false,
+        message: "Active emergency request not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Hospital assigned successfully",
+      data: emergency,
+    });
+  } catch (error) {
+    console.error("Assign hospital error:", error);
+
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency or hospital ID",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to assign hospital",
+    });
+  }
+};
+
+
+const getAvailableHospitals = async (req, res) => {
+  try {
+    const hospitals = await Hospital.find({
+      verificationStatus: "verified",
+      emergencyAvailability: "accepting",
+    })
+      .select(
+        "hospitalName registrationNumber address contactNumber emergencyCapacity emergencyAvailability"
+      )
+      .sort({ hospitalName: 1 });
+
+    return res.status(200).json({
+      success: true,
+      count: hospitals.length,
+      data: hospitals,
+    });
+  } catch (error) {
+    console.error("Get available hospitals error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch available hospitals",
+    });
+  }
+};
+
+
+const getDashboardStats = async (req, res) => {
+  try {
+    const [
+      totalUsers,
+      totalUnits,
+      verifiedUnits,
+      pendingUnits,
+      totalHospitals,
+      verifiedHospitals,
+      pendingHospitals,
+      totalEmergencies,
+      pendingEmergencies,
+      activeEmergencies,
+      completedEmergencies,
+    ] = await Promise.all([
+      User.countDocuments({ role: "user" }),
+
+      Unit.countDocuments(),
+      Unit.countDocuments({ verificationStatus: "verified" }),
+      Unit.countDocuments({ verificationStatus: "pending" }),
+
+      Hospital.countDocuments(),
+      Hospital.countDocuments({ verificationStatus: "verified" }),
+      Hospital.countDocuments({ verificationStatus: "pending" }),
+
+      EmergencyRequest.countDocuments(),
+      EmergencyRequest.countDocuments({ status: "pending" }),
+      EmergencyRequest.countDocuments({
+        status: {
+          $in: ["assigned", "accepted", "en-route", "arrived"],
+        },
+      }),
+      EmergencyRequest.countDocuments({ status: "completed" }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        users: {
+          total: totalUsers,
+        },
+        units: {
+          total: totalUnits,
+          verified: verifiedUnits,
+          pending: pendingUnits,
+        },
+        hospitals: {
+          total: totalHospitals,
+          verified: verifiedHospitals,
+          pending: pendingHospitals,
+        },
+        emergencies: {
+          total: totalEmergencies,
+          pending: pendingEmergencies,
+          active: activeEmergencies,
+          completed: completedEmergencies,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get dashboard stats error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch dashboard statistics",
+    });
+  }
+};
+
+
+
+
 module.exports = {
 assignUnitRole,
 getPendingUnits,
@@ -305,4 +624,9 @@ reviewUnit,
 assignHospitalRole,
 getPendingHospitals,
 reviewHospital,
+getPendingEmergencies,
+assignUnitToEmergency,
+assignHospitalToEmergency,
+getAvailableHospitals,
+getDashboardStats
 };

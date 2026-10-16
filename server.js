@@ -9,6 +9,7 @@ const dotenv = require("dotenv");
 const authRoutes=require("./routes/authRoutes")
 const adminRoutes = require("./routes/adminRoutes");
 const unitRoutes = require("./routes/unitRoutes");
+const emergencyRoutes = require("./routes/emergencyRoutes");
 const hospitalRoutes = require("./routes/hospitalRoutes");
 
 const connectDB = require("./config/db");
@@ -40,6 +41,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/units", unitRoutes);
 app.use("/api/hospitals", hospitalRoutes);
+app.use("/api/emergencies", emergencyRoutes);
 
 
 

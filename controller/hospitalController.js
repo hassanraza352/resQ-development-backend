@@ -1,5 +1,6 @@
 
 const Hospital = require("../model/Hospital");
+const EmergencyRequest = require("../model/EmergencyRequest");
 
 const registerHospital = async (req, res) => {
   try {
@@ -120,7 +121,113 @@ const getMyHospital = async (req, res) => {
   }
 };
 
+
+const updateHospitalAvailability = async (req, res) => {
+  try {
+    const { emergencyAvailability } = req.body;
+
+    if (
+      !["accepting", "not-accepting"].includes(emergencyAvailability)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Availability must be accepting or not-accepting",
+      });
+    }
+
+    const hospital = await Hospital.findOne({
+      user: req.user.id,
+    });
+
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: "Hospital profile not found",
+      });
+    }
+
+    if (hospital.verificationStatus !== "verified") {
+      return res.status(403).json({
+        success: false,
+        message: "Hospital must be verified by admin first",
+      });
+    }
+
+    hospital.emergencyAvailability = emergencyAvailability;
+    await hospital.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Hospital availability updated",
+      data: {
+        emergencyAvailability: hospital.emergencyAvailability,
+      },
+    });
+  } catch (error) {
+    console.error("Update hospital availability:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update availability",
+    });
+  }
+};
+
+const getHospitalEmergencyRequests = async (req, res) => {
+  try {
+    const hospital = await Hospital.findOne({
+      user: req.user.id,
+    });
+
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: "Hospital profile not found",
+      });
+    }
+
+    if (hospital.verificationStatus !== "verified") {
+      return res.status(403).json({
+        success: false,
+        message: "Hospital must be verified first",
+      });
+    }
+
+    const emergencies = await EmergencyRequest.find({
+      assignedHospital: hospital._id,
+      status: {
+        $in: [
+          "pending",
+          "assigned",
+          "accepted",
+          "en-route",
+          "arrived",
+        ],
+      },
+    })
+      .populate("requester", "name email phone")
+      .populate("assignedUnit")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: emergencies.length,
+      data: emergencies,
+    });
+  } catch (error) {
+    console.error("Get hospital emergencies:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch hospital emergencies",
+    });
+  }
+};
+
+
 module.exports = {
   registerHospital,
   getMyHospital,
+  updateHospitalAvailability,
+  getHospitalEmergencyRequests,
 };

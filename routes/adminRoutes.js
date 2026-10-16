@@ -12,7 +12,16 @@ reviewUnit,
 assignHospitalRole,
 getPendingHospitals,
 reviewHospital,
+  getPendingEmergencies,
+  assignUnitToEmergency,
+  assignHospitalToEmergency,
+  getAvailableHospitals,
+  getDashboardStats,
 } = require("../controller/adminController");
+
+const {
+  getAvailableUnits,
+} = require("../controller/unitController");
 
 const router = express.Router();
 
@@ -53,5 +62,30 @@ router.patch(
   "/hospitals/:hospitalId/review",
   reviewHospital
 );
+
+
+router.get("/emergencies/pending", getPendingEmergencies);
+
+router.get("/units/available", getAvailableUnits);
+
+router.patch(
+  "/emergencies/:requestId/assign",
+  assignUnitToEmergency
+);
+
+router.patch(
+  "/emergencies/:requestId/assign-hospital",
+  protect,
+  authorize("admin"),
+  assignHospitalToEmergency
+);
+
+router.get(
+  "/hospitals/available",
+  getAvailableHospitals
+);
+
+router.get("/dashboard", getDashboardStats);
+
 
 module.exports = router;
